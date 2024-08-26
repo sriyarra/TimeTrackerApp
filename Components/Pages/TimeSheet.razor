@@ -1,0 +1,133 @@
+@page "/timetracker"
+@using TimeTracker.Data
+
+<PageTitle>Time Tracker</PageTitle>
+<RadzenRow Visible=@Session.LapsesNotProcessed>
+    <RadzenColumn Size="6" SizeMD="4">
+        <RadzenCard Variant="Variant.Outlined">
+            <RadzenUpload @ref="upload" Auto="false" Multiple="true" Url="upload/multiple" Change=@(args => OnChange(args, "Manual Upload"))
+                          Complete=@(args => OnComplete(args)) InputAttributes="@(new Dictionary<string,object>(){ { "aria-label", "select file" }})"
+                          Progress=@(args => OnProgress(args, "Manual Upload")) Style="width: 100%" Accept="text/csv" />
+            <RadzenButton Text="Upload" Click=@(args => upload.Upload()) class="rz-mt-4" />
+        </RadzenCard>
+    </RadzenColumn>
+    <RadzenColumn Size="6" SizeMD="4">
+        <RadzenCard Variant="Variant.Outlined">
+            <RadzenLabel Text="Min. guards" Component="DropDownBindValue" />
+            <RadzenNumeric Max="10" Step="1" @bind-Value=@Session.MinimumGuardsRequired Name="DropDownBindValue" Min="1"></RadzenNumeric>
+        </RadzenCard>
+    </RadzenColumn>
+</RadzenRow>
+<RadzenRow AlignItems="AlignItems.End" JustifyContent="JustifyContent.Right" Visible=@Session.LapsesProcessed>
+    <RadzenColumn Size="12" SizeMD="4">
+        <RadzenCard Variant="Variant.Outlined">
+            <RadzenButton Click=@OnClearCache Text="Clear Cache" ButtonStyle="ButtonStyle.Primary" />
+        </RadzenCard>
+    </RadzenColumn>
+</RadzenRow>
+<RadzenRow Gap="10rem" Visible=@Session.LapsesProcessed>
+    <RadzenTabs Change=@OnTabChange TabPosition="TabPosition.Top" RenderMode="TabRenderMode.Client">
+        <Tabs>
+            <RadzenTabsItem Text="TimeSheet">
+                <RadzenDataGrid @ref=gridTimesheet Data="@Session.TimeEntries" @bind-Value=@timeEntriesFiltered
+                                AllowColumnResize="true" AllowAlternatingRows="false" SelectionMode="DataGridSelectionMode.Single"
+                                AllowPaging="true" PagerHorizontalAlign="HorizontalAlign.Left" ShowPagingSummary="true" AllowSorting="true" PageSize="500"
+                                AllowFiltering="true" FilterMode="FilterMode.Advanced"
+                                AllowGrouping="true" HideGroupedColumn="true" GroupRowRender="OnGroupRowRender" GroupRowExpand="OnGroupRowExpand"
+                                @bind-AllGroupsExpanded="@allGroupsExpanded">
+                    <Columns>
+                        <RadzenDataGridColumn Property="@nameof(TimeEntry.Name)" Title="Name" />
+                        <RadzenDataGridColumn Property="@nameof(TimeEntry.Mobile)" Title="Mobile" />
+                        <RadzenDataGridColumn Property="@nameof(TimeEntry.InDate)" Title="In Date" FormatString="{0:d}" TextAlign="TextAlign.Center" Sortable="true" />
+                        <RadzenDataGridColumn Property="@nameof(TimeEntry.InTime)" Title="In Time" FormatString="{0:t}" TextAlign="TextAlign.Center" />
+                        <RadzenDataGridColumn Property="@nameof(TimeEntry.OutDate)" Title="Out Date" FormatString="{0:d}" TextAlign="TextAlign.Center" Sortable="true" />
+                        <RadzenDataGridColumn Property="@nameof(TimeEntry.OutTime)" Title="Out Time" FormatString="{0:t}" TextAlign="TextAlign.Center" />
+                    </Columns>
+                    <FooterTemplate>
+                        View Count: <b>@gridTimesheet.View.Count()</b>
+                    </FooterTemplate>
+                </RadzenDataGrid>
+            </RadzenTabsItem>
+            <RadzenTabsItem Text="Guards at time (Chart)">
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Center" AlignItems="AlignItems.Center" Gap="0.5rem" class="rz-p-12">
+                    <RadzenFormField Text="Date & Time" Variant="Variant.Outlined">
+                        <RadzenDatePicker @bind-Value=@guardTime ShowTime="true" HourFormat="12" DateFormat="MM/dd/yyyy h:mm tt" Name="DatePickerHourFormat" />
+                    </RadzenFormField>
+                    <RadzenFormField Text="Step (mins.)" Variant="Variant.Outlined">
+                        <RadzenDropDown @bind-Value=@guardTimeStep Data=@timeSteps Style="width: 100%; max-width: 100px;" Name="DropDownBindValue" />
+                    </RadzenFormField>
+                    <RadzenButton Click="@(args => OnChartPageChange())" Text="Get" ButtonStyle="ButtonStyle.Primary" />
+                </RadzenStack>
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceAround" AlignItems="AlignItems.Center" Gap="0.2rem" Style="width:1200px;" class="rz-p-12">
+                    <RadzenChart Style="width:inherit;">
+                        <RadzenStackedAreaSeries Smooth="false" Data="@guardChart" Context="min" CategoryProperty="TimeStamp" ValueProperty="Count">
+                            <TooltipTemplate>
+                                @min.TimeStamp.ToString("H:mm") <p><strong>@min.GuardsCsv</strong></p>
+                            </TooltipTemplate>
+                        </RadzenStackedAreaSeries>
+                        <RadzenCategoryAxis Formatter="@FormatTimestamp"> </RadzenCategoryAxis>
+                        <RadzenValueAxis Min="0" Max="5" Step="1">
+                            <RadzenGridLines Visible="true" />
+                            <RadzenAxisTitle Text="Guard Count" />
+                        </RadzenValueAxis>
+                        <RadzenLegend Visible="false" Position="LegendPosition.Bottom" />
+                    </RadzenChart>
+                </RadzenStack>
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Center" AlignItems="AlignItems.Center">
+                    <RadzenButton Click="@(args => OnChartPageChange(false))" Text="Prev Page" ButtonStyle="ButtonStyle.Primary" />
+                    <RadzenButton Click="@(args => OnChartPageChange(true))" Text="Next Page" ButtonStyle="ButtonStyle.Primary" />
+                </RadzenStack>
+            </RadzenTabsItem>
+            <RadzenTabsItem Text="Guards at time (Grid)">
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Center" AlignItems="AlignItems.Center" Gap="0.5rem" class="rz-p-12">
+                    <RadzenRow>
+                        <RadzenFormField Text="From" Variant="Variant.Outlined">
+                            <RadzenDatePicker @bind-Value=@guardTimeFrom ShowTime="true" HourFormat="12" DateFormat="MM/dd/yyyy h:mm tt" Name="DatePickerHourFormat" />
+                        </RadzenFormField>
+                        <RadzenFormField Text="To" Variant="Variant.Outlined">
+                            <RadzenDatePicker @bind-Value=@guardTimeTo ShowTime="true" HourFormat="12" DateFormat="MM/dd/yyyy h:mm tt" Name="DatePickerHourFormat" />
+                        </RadzenFormField>
+                        <RadzenFormField Text="Step (mins.)" Variant="Variant.Outlined">
+                            <RadzenDropDown @bind-Value=@guardTimeStep Data=@timeSteps Style="width: 100%; max-width: 100px;" Name="DropDownBindValue" />
+                        </RadzenFormField>
+                        <RadzenButton Click=@OnDateTimeRangeChange Text="Get" ButtonStyle="ButtonStyle.Primary" />
+                    </RadzenRow>
+                </RadzenStack>
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Center" AlignItems="AlignItems.Center" Gap="0.5rem" class="rz-p-12">
+                    <RadzenDataGrid Data="@securityMinsFiltered" AllowColumnResize="true" AllowAlternatingRows="false" SelectionMode="DataGridSelectionMode.Single"
+                                    AllowPaging="true" PagerHorizontalAlign="HorizontalAlign.Left" ShowPagingSummary="true" AllowSorting="true" PageSize="500">
+                        <Columns>
+                            <RadzenDataGridColumn Property="@nameof(SecurityMin.Date)" Title="Date" FormatString="{0:d}" TextAlign="TextAlign.Center" />
+                            <RadzenDataGridColumn Property="@nameof(SecurityMin.Time)" Title="Time" FormatString="{0:t}" TextAlign="TextAlign.Center" />
+                            <RadzenDataGridColumn Property="@nameof(SecurityMin.GuardsCsv)" Title="Guards" />
+                            <RadzenDataGridColumn Property="@nameof(SecurityMin.Count)" Title="Count" />
+                        </Columns>
+                    </RadzenDataGrid>
+                </RadzenStack>
+            </RadzenTabsItem>
+            <RadzenTabsItem Text="Lapses">
+                <RadzenDataGrid @ref=gridLapse Data="@Session.SecurityLapses" @bind-Value=@securityLapsesFiltered Render="@OnRender"
+                                AllowColumnResize="true" AllowAlternatingRows="false" SelectionMode="DataGridSelectionMode.Single"
+                                AllowPaging="true" PagerHorizontalAlign="HorizontalAlign.Left" ShowPagingSummary="true" AllowSorting="true" PageSize="500"
+                                AllowFiltering="true" FilterMode="FilterMode.Advanced"
+                                AllowGrouping="true" HideGroupedColumn="true" GroupRowRender="OnGroupRowRender" GroupRowExpand="OnGroupRowExpand"
+                                GroupRowCollapse="OnGroupRowCollapse" ShowGroupExpandColumn=@showGroupExpandColumn @bind-AllGroupsExpanded="@allGroupsExpanded">
+                    <GroupHeaderTemplate>
+                        @(context.Data.Key.ToString("dd MMM") ?? ""), Lapse : @(ConvToEng(context.Data.Items.Cast<SecurityLapse>().Sum(d => d.LapseMins)))
+                    </GroupHeaderTemplate>
+                    <Columns>
+                        <RadzenDataGridColumn Property="@nameof(SecurityLapse.Date)" Title="Date" FormatString="{0:d}" TextAlign="TextAlign.Center" />
+                        <RadzenDataGridColumn Property="@nameof(SecurityLapse.From)" Title="From" FormatString="{0:t}" TextAlign="TextAlign.Center" />
+                        <RadzenDataGridColumn Property="@nameof(SecurityLapse.To)" Title="Till" FormatString="{0:t}" TextAlign="TextAlign.Center" />
+                        <RadzenDataGridColumn Property="@nameof(SecurityLapse.GuardCsv)" Title="Guards" />
+                        <RadzenDataGridColumn Property="@nameof(SecurityLapse.LapseMins)" Title="Lapse(mins.) " Sortable="true" />
+                        <RadzenDataGridColumn Property="@nameof(SecurityLapse.Lapse)" Title="Lapse Duration" />
+                    </Columns>
+                    <FooterTemplate>
+                        ViewCount: <b>@gridLapse.View.Count()</b>
+                    </FooterTemplate>
+                </RadzenDataGrid>
+            </RadzenTabsItem>
+        </Tabs>
+    </RadzenTabs>
+</RadzenRow>
